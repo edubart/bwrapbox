@@ -2,12 +2,21 @@
 
 Linux sandboxing utility on top of [Blubblewrap](https://github.com/containers/bubblewrap).
 
-This tool enhances bwrap by adding ways to limit process group resources such as:
+It uses the following Linux features aiming a secure sandbox for running untrusted ELF binaries:
+- [Linux namespaces](https://en.wikipedia.org/wiki/Linux_namespaces) - to isolate processes
+- [Linux cgroups](https://en.wikipedia.org/wiki/Cgroups) - to limit processes resources
+- [Linux seccomp](https://en.wikipedia.org/wiki/Seccomp) - to filter system calls from processes
+
+This tool enhances Bubblewrap by adding ways to limit process group resources such as:
 - Memory usage
 - CPU usage
-- Time
+- Disk usage
+- Number of processes
 
-The Linux kernel must have support for [cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+The Linux kernel must have support for
+- [Cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)
+- [Seccommp BPF](https://docs.kernel.org/userspace-api/seccomp_filter.html)
+- [Namespaces](https://docs.kernel.org/admin-guide/namespaces/index.html)
 
 ## Installation
 
@@ -22,7 +31,7 @@ sudo make install PREFIX=/usr/local
 
 ## Options
 
-This tool basically it introduces the following new options that are configured before calling `bwrap`:
+This tool basically introduces the following new options that are set before calling `bwrap`:
 
 ```
 usage: bwrapbox [OPTIONS...] [--] COMMAND [ARGS...]
@@ -34,14 +43,14 @@ usage: bwrapbox [OPTIONS...] [--] COMMAND [ARGS...]
     --rlimit VAR VALUE           Set resource limit (per process)
     --setuid VALUE               Set UID before running bwrap
     --setgid VALUE               Set GID before running bwrap
-    --setgid VALUE               Set GID before running bwrap
+    --quiet                      Suppress exit message
 ```
 
 Plus you can pass all options supported by `bwrap`.
 
 ## Example of advanced usage
 
-The following example creates a sandbox mirroring the root filesystem,
+The following example creates a sandbox exposing the root filesystem,
 with many resources limitations and runs `bash` as `nobody` user:
 
 ```sh
@@ -107,6 +116,12 @@ sudo ./bwrapbox \
   --new-session \
   bash
 ```
+
+For understading `climit` and `rlimit` options, please read the
+[Linux cgroups v2 documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html) and
+[setrlimit() documentation](https://linux.die.net/man/2/setrlimit).
+
+For understanding other options you can read the bubblewrap documentation.
 
 If you want to also use [seccomp](https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html?highlight=seccomp)
 to filter potentially dangerous Linux syscalls, include the option:
