@@ -1,4 +1,6 @@
 require 'io'
+require 'os'
+require 'math'
 require 'arg'
 require 'hashmap'
 require 'sequence'
@@ -204,13 +206,15 @@ local cgroup_path: string
 local cgroup_limits: sequence(limit_pair)
 local cgroup_high_usecs: integer = -1
 local cgroup_max_usecs: integer = -1
+local elapsed_high_limit_usecs: integer = -1
+local elapsed_max_limit_usecs: integer = -1
 local quiet: boolean
 local exec_uid: uint32 = 0xffffffff
 local exec_gid: uint32 = 0xffffffff
 local exec_limits: sequence(limit_pair)
 
 local function print_help(arg0: string)
-  print([[
+  io.stdout:write([[
 usage: ]]..arg0..[[ [OPTIONS...] [--] COMMAND [ARGS...]
 
     --help                       Print this help
@@ -218,9 +222,12 @@ usage: ]]..arg0..[[ [OPTIONS...] [--] COMMAND [ARGS...]
     --cgroup-overwrite           Kill and destroy cgroup in case it already exists
     --climit VAR VALUE           Set cgroup limit (sum of all processes in cgroup)
     --rlimit VAR VALUE           Set resource limit (per process)
+    --climit-elapsed-high VALUE  Elapsed time limit before raising signal SIGXCPU (in microseconds)
+    --climit-elapsed-max VALUE   Elapsed time limit before raising signal SIGKILL (in microseconds)
     --setuid VALUE               Set UID before running bwrap
     --setgid VALUE               Set GID before running bwrap
     --quiet                      Suppress exit message
+
 ]])
 end
 
@@ -258,9 +265,9 @@ local function parse_args(): sequence(cstring)
       end
       i = i + 1
       cgroup_enabled = true
-    elseif arg[i] == '--cgroup-overwrite' and not ignore  then
+    elseif arg[i] == '--cgroup-overwrite' and not ignore then
       cgroup_overwrite = true
-    elseif arg[i] == '--climit' and not ignore  then
+    elseif arg[i] == '--climit' and not ignore then
       local name: string = arg[i+1]
       local value: integer = tointeger(arg[i+2])
       if name == 'time.high' then
@@ -271,13 +278,25 @@ local function parse_args(): sequence(cstring)
         cgroup_limits:push{=name, =value}
       end
       i = i + 2
-    elseif arg[i] == '--rlimit' and not ignore  then
+    elseif arg[i] == '--rlimit' and not ignore then
       exec_limits:push{name = arg[i+1], value = tointeger(arg[i+2])}
       i = i + 2
-    elseif arg[i] == '--setuid' and not ignore  then
+    elseif arg[i] == '--climit-elapsed-high' and not ignore then
+      if not cgroup_enabled then
+        fail("enable cgroup to limit time")
+      end
+      elapsed_high_limit_usecs = tointeger(arg[i+1])
+      i = i + 1
+    elseif arg[i] == '--climit-elapsed-max' and not ignore then
+      if not cgroup_enabled then
+        fail("enable cgroup to limit time")
+      end
+      elapsed_max_limit_usecs = tointeger(arg[i+1])
+      i = i + 1
+    elseif arg[i] == '--setuid' and not ignore then
       exec_uid = tointeger(arg[i+1])
       i = i + 1
-    elseif arg[i] == '--setgid' and not ignore  then
+    elseif arg[i] == '--setgid' and not ignore then
       exec_gid = tointeger(arg[i+1])
       i = i + 1
     elseif arg[i] == '--quiet' and not ignore then
@@ -340,16 +359,23 @@ local function bwrap_exec(args: sequence(cstring), rlimits: sequence(limit_pair)
   panic() -- unreachable
 end
 
-local function cgroup_wait_cputime_and_kill(cgroup_path: string, max_usecs: integer, pid: cint, sig: cint)
+local function cgroup_wait_time_and_kill(cgroup_path: string, cpu_max_usecs: integer, time_max_usecs: integer, pid: cint, sig: cint): void
   while true do
-    local usage_usec = cgroup_cputime_usecs(cgroup_path)
-    if usage_usec < 0 then -- cgroup unavailable
-      return
-    elseif usage_usec >= max_usecs then -- time exceeded
+    local elapsed_usec: integer = (@integer)(os.now() * 1000000.0)
+    local usage_usec: integer = cgroup_cputime_usecs(cgroup_path)
+    if usage_usec < 0 then return end -- cgroup unavailable, it was probably killed
+    if (cpu_max_usecs >= 0 and usage_usec >= cpu_max_usecs) or (time_max_usecs >= 0 and elapsed_usec >= time_max_usecs) then -- time exceeded
       kill(pid, sig)
       return
     else
-      usleep(max_usecs - usage_usec)
+      local wait_usecs: integer = math.maxinteger
+      if cpu_max_usecs >= 0 then
+        wait_usecs = math.min(wait_usecs, math.max(cpu_max_usecs - usage_usec, 0))
+      end
+      if time_max_usecs >= 0 then
+        wait_usecs = math.min(wait_usecs, math.max(time_max_usecs - elapsed_usec, 0))
+      end
+      usleep(wait_usecs)
     end
   end
 end
@@ -360,19 +386,21 @@ local function after_fork()
   end
 end
 
-local function fork_cgroup_time_limiter(cgroup_path: string, high_usecs: integer, max_usecs: integer, kill_pid: cint): cint
-  if high_usecs < 0 and max_usecs < 0 then
+local function fork_cgroup_time_limiter(cgroup_path: string, cpu_high_usecs: integer, cpu_max_usecs: integer, time_high_usecs: integer, time_max_usecs: integer, kill_pid: cint): cint
+  if cpu_high_usecs < 0 and cpu_max_usecs < 0 and time_high_usecs < 0 and time_max_usecs < 0 then
     return -1
   end
   local pid: cint = fork()
   if pid == 0 then
     is_child = true
     after_fork()
-    if high_usecs >= 0 then
-      cgroup_wait_cputime_and_kill(cgroup_path, high_usecs, kill_pid, SIGXCPU)
+    if cpu_high_usecs >= 0 or time_high_usecs >= 0 then
+      if cpu_high_usecs == -1 or (cpu_max_usecs >= 0 and cpu_max_usecs < cpu_high_usecs) then cpu_high_usecs = cpu_max_usecs end
+      if time_high_usecs == -1 or (time_max_usecs >= 0 and time_max_usecs < time_high_usecs) then time_high_usecs = time_max_usecs end
+      cgroup_wait_time_and_kill(cgroup_path, cpu_high_usecs, time_high_usecs, kill_pid, SIGXCPU)
     end
-    if max_usecs >= 0 then
-      cgroup_wait_cputime_and_kill(cgroup_path, max_usecs, kill_pid, SIGKILL)
+    if cpu_max_usecs >= 0 or time_max_usecs >= 0 then
+      cgroup_wait_time_and_kill(cgroup_path, cpu_max_usecs, time_max_usecs, kill_pid, SIGKILL)
     end
     _exit(0)
   elseif pid < 0 then
@@ -415,7 +443,8 @@ if cgroup_enabled then
   -- start bwrap process
   local bwrap_pid: cint = fork_cgroup_bwrap_exec(cgroup_path, bwrap_args, exec_limits, exec_uid, exec_gid)
   -- start limiter process
-  local limiter_pid: cint = fork_cgroup_time_limiter(cgroup_path, cgroup_high_usecs, cgroup_max_usecs, bwrap_pid)
+  os.now() -- compute first time
+  local limiter_pid: cint = fork_cgroup_time_limiter(cgroup_path, cgroup_high_usecs, cgroup_max_usecs, elapsed_high_limit_usecs, elapsed_max_limit_usecs, bwrap_pid)
   -- setup abnormal exit handler
   sigaction(SIGTERM, &sigaction_t{sa_handler = signal_handler}, nilptr)
   sigaction(SIGINT, &sigaction_t{sa_handler = signal_handler}, nilptr)
@@ -423,10 +452,11 @@ if cgroup_enabled then
   local status: cint, reason: string = wait_child_pid(bwrap_pid)
   local cputime_usec: integer = cgroup_cputime_usecs(cgroup_path)
   if not quiet then
+    local elapsed_usecs: integer = (@integer)(os.now() * 1000000.0)
     if reason == 'killed' and status == SIGXCPU then
-      io.stderr:printf("[bwrapbox] application CPU time exceeded after %d usecs\n", cputime_usec)
+      io.stderr:printf("[bwrapbox] application time exceeded after %d real usecs and CPU %d usecs\n", elapsed_usecs, cputime_usec)
     else
-      io.stderr:printf("[bwrapbox] application %s with status %d after %d usecs\n", reason, status, cputime_usec)
+      io.stderr:printf("[bwrapbox] application %s with status %d after %d real usecs and CPU %d usecs\n", reason, status, elapsed_usecs, cputime_usec)
     end
   end
   exit(status)
