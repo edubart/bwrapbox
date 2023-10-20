@@ -212,6 +212,18 @@ local allowed_syscalls = {
   'arch_prctl',
   'cacheflush',
   'rseq',
+
+  -- system information
+  'capget',
+  'getcpu',
+  'getpriority',
+  'getrlimit',
+  'getrusage',
+  'oldolduname',
+  'olduname',
+  'sysinfo',
+  'ugetrlimit',
+  'uname',
 }
 
 local disallowed_syscalls = {
@@ -245,18 +257,6 @@ local disallowed_syscalls = {
   'futex',
   'futex_time64',
   'futex_waitv',
-
-  -- system information
-  'capget',
-  'getcpu',
-  'getpriority',
-  'getrlimit',
-  'getrusage',
-  'oldolduname',
-  'olduname',
-  'sysinfo',
-  'ugetrlimit',
-  'uname',
 
   -- inter process communication
   'ipc',
@@ -583,7 +583,7 @@ local disallowed_syscalls = {
   'vserver',
 }
 
-local f = assert(io.open('seccomp-rules.h', 'w'))
+local f = assert(io.open('seccomp-filter-rules.h', 'w'))
 for _,name in ipairs(allowed_syscalls) do
   local line = string.format("ALLOW_RULE(%s)\n", name)
   f:write(line)
