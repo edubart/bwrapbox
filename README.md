@@ -11,7 +11,6 @@ This tool enhances Bubblewrap by adding ways to limit process group resources su
 - Memory usage
 - CPU time usage
 - Real time usage
-- Disk usage
 - Number of processes
 
 The Linux kernel must have support for
@@ -23,7 +22,7 @@ The Linux kernel must have support for
 
 First make sure you have:
 - [libseccomp](https://github.com/seccomp/libseccomp) installed along with its development files.
-= [blubblewrap](https://github.com/containers/bubblewrap) installed.
+= [bubblewrap](https://github.com/containers/bubblewrap) installed.
 
 ```sh
 make

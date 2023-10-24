@@ -27,6 +27,9 @@ seccomp-filter: seccomp-filter.c seccomp-filter-rules.h
 seccomp-filter.bpf: seccomp-filter
 	./seccomp-filter $@
 
+generate-seccomp-rules:
+	lua generate-rules.lua
+
 clean:
 	rm -f bwrapbox seccomp-filter seccomp-filter.bpf bwrapbox.c
 

@@ -454,9 +454,9 @@ if cgroup_enabled then
   if not quiet then
     local elapsed_usecs: integer = (@integer)(os.now() * 1000000.0)
     if reason == 'killed' and status == SIGXCPU then
-      io.stderr:printf("[bwrapbox] application time exceeded after %d real usecs and CPU %d usecs\n", elapsed_usecs, cputime_usec)
+      io.stderr:printf("[bwrapbox] application time exceeded after %d real usecs and %d CPU usecs\n", elapsed_usecs, cputime_usec)
     else
-      io.stderr:printf("[bwrapbox] application %s with status %d after %d real usecs and CPU %d usecs\n", reason, status, elapsed_usecs, cputime_usec)
+      io.stderr:printf("[bwrapbox] application %s with status %d after %d real usecs and %d CPU usecs\n", reason, status, elapsed_usecs, cputime_usec)
     end
   end
   exit(status)
