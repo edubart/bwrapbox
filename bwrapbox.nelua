@@ -53,7 +53,8 @@ end
 local function wait_child_pid(pid: cint): (cint, string)
   local status: cint
   if waitpid(pid, &status, 0) ~= pid then
-    fail('failed to wait child pid')
+    -- process was probably interrupt from outside (CTRL-C)
+    return 130, 'interrupted'
   end
   if WIFEXITED(status) then
     status = WEXITSTATUS(status)

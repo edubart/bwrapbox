@@ -8,7 +8,7 @@ APP_LDFLAGS+=-Wl,--relax,--sort-common,--sort-section=name
 APP_LDFLAGS+=-z relro -z now
 APP_LDFLAGS+=-pie
 APP_LDFLAGS+=-s
-NELUA_FLAGS+=-Pnochecks -Pnoassertloc -Pnocstaticassert -Pnocwarnpragmas -Pnocstaticassert -Pnocfeaturessetup -Pnogc
+NELUA_FLAGS+=-Pnochecks -Pnoerrorloc -Pnocstaticassert -Pnocwarnpragmas -Pnocstaticassert -Pnocfeaturessetup -Pnogc
 
 HARDEN_CFLAGS=-fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-clash-protection -fstack-protector-strong
 HARDEN_LDFLAGS=-pie -Wl,-z,now,-z,relro
